@@ -56,10 +56,14 @@ function initWebSocket() {
     roomCode = '';
   }
 
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  // For cloud hosting (Render, etc.), WebSocket should use secure connection
+  const isSecure = window.location.protocol === 'https:';
+  const protocol = isSecure ? 'wss:' : 'ws:';
+
+  // Use the same host as the current page
   const wsUrl = roomCode ? `${protocol}//${window.location.host}?room=${roomCode}` : `${protocol}//${window.location.host}`;
 
-  console.log('🔌 Connecting to:', wsUrl, 'Room:', roomCode || 'auto');
+  console.log('🔌 Connecting to:', wsUrl, 'Room:', roomCode || 'auto', 'Secure:', isSecure);
   ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {

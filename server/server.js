@@ -280,5 +280,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`   http://localhost:${PORT}`);
   console.log(`\n📱 Open on other devices (same WiFi):`);
   console.log(`   http://${localIP}:${PORT}`);
+  console.log(`\n🌐 Online access (with ngrok):`);
+  console.log(`   Set NGROK_AUTH_TOKEN and restart`);
   console.log('\n=================================\n');
 });
