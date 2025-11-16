@@ -125,14 +125,14 @@
         <h2 style="color: #fff;">📋 Debug Console</h2>
         <button class="btn btn-secondary" onclick="clearConsole()" style="font-size: 12px; padding: 6px 12px;">Clear</button>
       </div> -->
-      <div id="consoleLog" style="font-family: monospace; font-size: 11px; max-height: 200px; overflow-y: auto; background: #111827; padding: 12px; border-radius: 8px;">
+      <!-- <div id="consoleLog" style="font-family: monospace; font-size: 11px; max-height: 200px; overflow-y: auto; background: #111827; padding: 12px; border-radius: 8px;">
         <div style="color: #10b981;">Console ready...</div>
-      </div>
+      </div> -->
     </div>
   </div>
 
   <script src="app.js"></script>
-  <script>
+  <!-- <script>
     // Override console.log to display in UI
     const originalLog = console.log;
     const consoleLogDiv = document.getElementById('consoleLog');
@@ -152,19 +152,19 @@
       consoleLogDiv.scrollTop = consoleLogDiv.scrollHeight;
     };
 
-    console.error = function(...args) {
-      console.log('❌ ERROR:', ...args);
-    };
+    // console.error = function(...args) {
+    //   console.log('❌ ERROR:', ...args);
+    // };
 
-    function clearConsole() {
-      consoleLogDiv.innerHTML = '<div style="color: #10b981;">Console cleared...</div>';
-    }
+    // function clearConsole() {
+    //   consoleLogDiv.innerHTML = '<div style="color: #10b981;">Console cleared...</div>';
+    // }
 
     // Add debug info display
-    function updateDebugInfo(text) {
-      const debugDiv = document.getElementById('debugInfo');
-      debugDiv.textContent = text;
-    }
-  </script>
+    //function updateDebugInfo(text) {
+    //   const debugDiv = document.getElementById('debugInfo');
+    //   debugDiv.textContent = text;
+    // }
+  </script> -->
 </body>
 </html>
