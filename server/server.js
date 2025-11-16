@@ -225,26 +225,35 @@ app.get('/qrcode/:roomCode?', async (req, res) => {
     let baseUrl;
     let isOnline = false;
 
-    // Try ngrok first for public URL
-    try {
-      baseUrl = await ngrok.connect({
-        addr: process.env.PORT || 3000,
-        authtoken: process.env.NGROK_AUTH_TOKEN // Optional: set in environment
-      });
-      console.log('✅ Ngrok URL:', baseUrl);
+    // For cloud hosting (Render, etc.), use the request host
+    if (req.headers.host && (req.headers.host.includes('render.com') || req.headers.host.includes('onrender.com') || req.protocol === 'https')) {
+      const protocol = req.protocol;
+      const host = req.headers.host;
+      baseUrl = `${protocol}://${host}`;
       isOnline = true;
-    } catch (ngrokError) {
-      console.log('⚠️ Ngrok not available:', ngrokError.message);
-      console.log('💡 For online access:');
-      console.log('   1. Get free ngrok account at https://ngrok.com');
-      console.log('   2. Set NGROK_AUTH_TOKEN environment variable');
-      console.log('   3. Restart the server');
+      console.log('✅ Cloud hosting detected, using:', baseUrl);
+    } else {
+      // Try ngrok first for public URL
+      try {
+        baseUrl = await ngrok.connect({
+          addr: process.env.PORT || 3000,
+          authtoken: process.env.NGROK_AUTH_TOKEN // Optional: set in environment
+        });
+        console.log('✅ Ngrok URL:', baseUrl);
+        isOnline = true;
+      } catch (ngrokError) {
+        console.log('⚠️ Ngrok not available:', ngrokError.message);
+        console.log('💡 For online access:');
+        console.log('   1. Get free ngrok account at https://ngrok.com');
+        console.log('   2. Set NGROK_AUTH_TOKEN environment variable');
+        console.log('   3. Restart the server');
 
-      // Fallback to local IP
-      const localIP = getLocalIP();
-      const port = process.env.PORT || 3000;
-      baseUrl = `http://${localIP}:${port}`;
-      console.log('📍 Using local network URL:', baseUrl);
+        // Fallback to local IP
+        const localIP = getLocalIP();
+        const port = process.env.PORT || 3000;
+        baseUrl = `http://${localIP}:${port}`;
+        console.log('📍 Using local network URL:', baseUrl);
+      }
     }
 
     const roomCode = req.params.roomCode || req.query.room;
