@@ -15,9 +15,11 @@
         <div class="status-badge" id="statusBadge">Connecting...</div>
       </div>
       <div class="qr-code-section" id="qrCodeSection" style="display: none; margin-top: 15px; text-align: center;">
-        <p style="margin: 5px 0; font-size: 14px; color: #666;">Share this link with other devices:</p>
+        <p style="margin: 5px 0; font-size: 14px; color: #666;">Share this room link with other devices:</p>
         <div id="qrCodeContainer" style="margin: 10px 0;"></div>
         <p style="margin: 5px 0; font-size: 12px; color: #888;" id="publicUrl">Loading...</p>
+        <p style="margin: 5px 0; font-size: 12px; color: #666;">Room Code: <span id="roomCodeDisplay" style="font-weight: bold;">------</span></p>
+        <p style="margin: 5px 0; font-size: 11px; color: #999;">Only devices with this room code can connect and share files</p>
       </div>
       <div class="debug-info" id="debugInfo" style="font-size: 12px; color: #666; margin-top: 10px;"></div>
     </header>
@@ -32,6 +34,9 @@
         <button class="btn btn-copy" id="copyBtn" onclick="copyId()">
           📋 Copy
         </button>
+      </div>
+      <div class="room-info" style="margin-top: 10px; padding: 8px; background: #f3f4f6; border-radius: 6px;">
+        <small style="color: #6b7280;">Room Code: <span id="roomCodeDisplay" style="font-weight: bold; color: #374151;">------</span></small>
       </div>
       <p class="hint">Share this ID with other devices to receive files</p>
     </div>
@@ -116,10 +121,10 @@
 
     <!-- Console Log Display -->
     <div class="card" style="background: #1f2937; color: #fff;">
-      <div class="card-header">
+      <!-- <div class="card-header">
         <h2 style="color: #fff;">📋 Debug Console</h2>
         <button class="btn btn-secondary" onclick="clearConsole()" style="font-size: 12px; padding: 6px 12px;">Clear</button>
-      </div>
+      </div> -->
       <div id="consoleLog" style="font-family: monospace; font-size: 11px; max-height: 200px; overflow-y: auto; background: #111827; padding: 12px; border-radius: 8px;">
         <div style="color: #10b981;">Console ready...</div>
       </div>
@@ -131,13 +136,13 @@
     // Override console.log to display in UI
     const originalLog = console.log;
     const consoleLogDiv = document.getElementById('consoleLog');
-    
+
     console.log = function(...args) {
       originalLog.apply(console, args);
-      const message = args.map(arg => 
+      const message = args.map(arg =>
         typeof arg === 'object' ? JSON.stringify(arg, null, 2) : arg
       ).join(' ');
-      
+
       const time = new Date().toLocaleTimeString();
       const logEntry = document.createElement('div');
       logEntry.style.marginBottom = '4px';

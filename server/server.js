@@ -6,7 +6,7 @@ const cors = require('cors');
 const os = require('os');
 const QRCode = require('qrcode');
 const { publicIpv4 } = require('public-ip');
-const ngrok = require('@ngrok/ngrok');
+const ngrok = require('ngrok');
 
 const app = express();
 const server = http.createServer(app);
@@ -17,8 +17,8 @@ app.use(cors());
 app.use(express.json({ limit: '100mb' }));
 app.use(express.static(path.join(__dirname, '../client')));
 
-// Store connected clients
-const clients = new Map();
+// Store rooms and clients
+const rooms = new Map(); // roomCode -> { clients: Map, host: clientId }
 
 // Get local IP address
 function getLocalIP() {
@@ -33,36 +33,72 @@ function getLocalIP() {
   return 'localhost';
 }
 
+// Generate unique room code
+function generateRoomCode() {
+  return Math.random().toString(36).substring(2, 8).toUpperCase();
+}
+
 // WebSocket connection handler
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
+  const url = new URL(req.url, 'http://localhost');
+  const roomCode = url.searchParams.get('room') || generateRoomCode();
+
+  // Initialize room if it doesn't exist
+  if (!rooms.has(roomCode)) {
+    rooms.set(roomCode, { clients: new Map(), host: null });
+  }
+
+  const room = rooms.get(roomCode);
   const clientId = generateId();
-  clients.set(clientId, { ws, id: clientId });
+  room.clients.set(clientId, { ws, id: clientId, roomCode });
 
-  console.log(`Client connected: ${clientId}`);
+  // Set host if this is the first client
+  if (!room.host) {
+    room.host = clientId;
+  }
 
-  // Send the client their ID
+  console.log(`Client connected: ${clientId} in room: ${roomCode}`);
+
+  // Send the client their info
   ws.send(JSON.stringify({
     type: 'init',
     clientId: clientId,
-    totalClients: clients.size
+    roomCode: roomCode,
+    isHost: clientId === room.host,
+    totalClients: room.clients.size
   }));
 
-  // Broadcast updated client list to all
-  broadcastClientList();
+  // Broadcast updated client list to room
+  broadcastRoomList(roomCode);
 
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message);
-      handleMessage(clientId, data);
+      handleMessage(clientId, roomCode, data);
     } catch (error) {
       console.error('Error parsing message:', error);
     }
   });
 
   ws.on('close', () => {
-    clients.delete(clientId);
-    console.log(`Client disconnected: ${clientId}`);
-    broadcastClientList();
+    room.clients.delete(clientId);
+    console.log(`Client disconnected: ${clientId} from room: ${roomCode}`);
+
+    // If host left, assign new host or remove room
+    if (clientId === room.host) {
+      if (room.clients.size > 0) {
+        room.host = Array.from(room.clients.keys())[0];
+        // Notify new host
+        const newHost = room.clients.get(room.host);
+        if (newHost) {
+          newHost.ws.send(JSON.stringify({ type: 'became-host' }));
+        }
+      } else {
+        rooms.delete(roomCode);
+      }
+    }
+
+    broadcastRoomList(roomCode);
   });
 
   ws.on('error', (error) => {
@@ -71,11 +107,14 @@ wss.on('connection', (ws) => {
 });
 
 // Handle different message types
-function handleMessage(senderId, data) {
+function handleMessage(senderId, roomCode, data) {
+  const room = rooms.get(roomCode);
+  if (!room) return;
+
   switch (data.type) {
     case 'signal':
       // Forward signaling data for WebRTC
-      forwardToClient(data.targetId, {
+      forwardToClient(room, data.targetId, {
         type: 'signal',
         senderId: senderId,
         signal: data.signal
@@ -84,7 +123,7 @@ function handleMessage(senderId, data) {
 
     case 'file-offer':
       // Forward file offer to target client
-      forwardToClient(data.targetId, {
+      forwardToClient(room, data.targetId, {
         type: 'file-offer',
         senderId: senderId,
         fileName: data.fileName,
@@ -95,7 +134,7 @@ function handleMessage(senderId, data) {
 
     case 'file-accept':
       // Forward acceptance to sender
-      forwardToClient(data.targetId, {
+      forwardToClient(room, data.targetId, {
         type: 'file-accept',
         senderId: senderId
       });
@@ -103,7 +142,7 @@ function handleMessage(senderId, data) {
 
     case 'file-reject':
       // Forward rejection to sender
-      forwardToClient(data.targetId, {
+      forwardToClient(room, data.targetId, {
         type: 'file-reject',
         senderId: senderId
       });
@@ -111,7 +150,7 @@ function handleMessage(senderId, data) {
 
     case 'file-chunk':
       // Forward file chunk to target client
-      forwardToClient(data.targetId, {
+      forwardToClient(room, data.targetId, {
         type: 'file-chunk',
         senderId: senderId,
         chunk: data.chunk,
@@ -122,7 +161,7 @@ function handleMessage(senderId, data) {
 
     case 'file-complete':
       // Notify target that file transfer is complete
-      forwardToClient(data.targetId, {
+      forwardToClient(room, data.targetId, {
         type: 'file-complete',
         senderId: senderId
       });
@@ -130,23 +169,27 @@ function handleMessage(senderId, data) {
   }
 }
 
-// Forward message to specific client
-function forwardToClient(targetId, message) {
-  const client = clients.get(targetId);
+// Forward message to specific client in room
+function forwardToClient(room, targetId, message) {
+  const client = room.clients.get(targetId);
   if (client && client.ws.readyState === WebSocket.OPEN) {
     client.ws.send(JSON.stringify(message));
   }
 }
 
-// Broadcast client list to all connected clients
-function broadcastClientList() {
-  const clientList = Array.from(clients.keys());
+// Broadcast client list to all clients in room
+function broadcastRoomList(roomCode) {
+  const room = rooms.get(roomCode);
+  if (!room) return;
+
+  const clientList = Array.from(room.clients.keys());
   const message = JSON.stringify({
     type: 'client-list',
-    clients: clientList
+    clients: clientList,
+    host: room.host
   });
 
-  clients.forEach((client) => {
+  room.clients.forEach((client) => {
     if (client.ws.readyState === WebSocket.OPEN) {
       client.ws.send(message);
     }
@@ -163,43 +206,66 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '../client/index.html'));
 });
 
+app.get('/:roomCode', (req, res) => {
+  res.sendFile(path.join(__dirname, '../client/index.html'));
+});
+
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
-    clients: clients.size,
+    rooms: rooms.size,
+    clients: Array.from(rooms.values()).reduce((sum, room) => sum + room.clients.size, 0),
     uptime: process.uptime()
   });
 });
 
-// Get public URL and QR code
-app.get('/qrcode', async (req, res) => {
+// Get public URL and QR code for current room
+app.get('/qrcode/:roomCode?', async (req, res) => {
   try {
+    let baseUrl;
+    let isOnline = false;
+
     // Try ngrok first for public URL
-    let publicUrl;
     try {
-      const listener = await ngrok.forward({
+      baseUrl = await ngrok.connect({
         addr: process.env.PORT || 3000,
         authtoken: process.env.NGROK_AUTH_TOKEN // Optional: set in environment
       });
-      publicUrl = listener.url();
-      console.log('Ngrok URL:', publicUrl);
+      console.log('✅ Ngrok URL:', baseUrl);
+      isOnline = true;
     } catch (ngrokError) {
-      console.log('Ngrok failed, using public IP:', ngrokError.message);
-      const publicIP = await publicIpv4();
+      console.log('⚠️ Ngrok not available:', ngrokError.message);
+      console.log('💡 For online access:');
+      console.log('   1. Get free ngrok account at https://ngrok.com');
+      console.log('   2. Set NGROK_AUTH_TOKEN environment variable');
+      console.log('   3. Restart the server');
+
+      // Fallback to local IP
+      const localIP = getLocalIP();
       const port = process.env.PORT || 3000;
-      publicUrl = `http://${publicIP}:${port}`;
+      baseUrl = `http://${localIP}:${port}`;
+      console.log('📍 Using local network URL:', baseUrl);
     }
 
+    const roomCode = req.params.roomCode || req.query.room;
+    const fullUrl = roomCode ? `${baseUrl}/${roomCode}` : baseUrl;
+
     // Generate QR code as data URL
-    const qrCodeDataURL = await QRCode.toDataURL(publicUrl);
+    const qrCodeDataURL = await QRCode.toDataURL(fullUrl);
 
     res.json({
-      url: publicUrl,
-      qrCode: qrCodeDataURL
+      url: fullUrl,
+      qrCode: qrCodeDataURL,
+      roomCode: roomCode,
+      isOnline: isOnline
     });
   } catch (error) {
-    console.error('Error generating QR code:', error);
-    res.status(500).json({ error: 'Failed to generate QR code' });
+    console.error('❌ Error generating QR code:', error);
+    res.status(500).json({
+      error: 'Failed to generate QR code',
+      details: error.message,
+      fallback: 'Using local network mode'
+    });
   }
 });
 

@@ -1,5 +1,6 @@
 let ws = null;
 let myId = null;
+let myRoomCode = null;
 let selectedFile = null;
 let currentTransfer = null;
 let receivedChunks = [];
@@ -7,41 +8,66 @@ let receivedChunks = [];
 // Load QR code and public URL
 async function loadQRCode() {
   try {
-    const response = await fetch('/qrcode');
+    const urlParams = new URLSearchParams(window.location.search);
+    const roomCode = urlParams.get('room') || myRoomCode;
+    const endpoint = roomCode ? `/qrcode/${roomCode}` : '/qrcode';
+
+    const response = await fetch(endpoint);
     const data = await response.json();
 
     if (data.url && data.qrCode) {
-      document.getElementById('publicUrl').textContent = data.url;
+      const urlText = data.isOnline ? data.url : `Local: ${data.url}`;
+      document.getElementById('publicUrl').textContent = urlText;
 
       const qrContainer = document.getElementById('qrCodeContainer');
       qrContainer.innerHTML = `<img src="${data.qrCode}" alt="QR Code" style="width: 150px; height: 150px; border: 2px solid #ddd; border-radius: 8px;">`;
 
       document.getElementById('qrCodeSection').style.display = 'block';
-      console.log('✅ QR code loaded:', data.url);
+      console.log('✅ QR code loaded:', data.url, data.isOnline ? '(Online)' : '(Local Network)');
+    } else if (data.error) {
+      console.error('❌ QR code error:', data.error);
+      document.getElementById('publicUrl').textContent = `Error: ${data.details || data.error}`;
+      document.getElementById('qrCodeSection').style.display = 'block';
     }
   } catch (error) {
     console.error('❌ Failed to load QR code:', error);
-    // Fallback: show local URL
-    const localUrl = `${window.location.protocol}//${window.location.host}`;
-    document.getElementById('publicUrl').textContent = `Local: ${localUrl}`;
+    // Fallback: show current URL
+    const currentUrl = window.location.href;
+    document.getElementById('publicUrl').textContent = `Current: ${currentUrl}`;
     document.getElementById('qrCodeSection').style.display = 'block';
   }
 }
 
 // Initialize WebSocket connection
 function initWebSocket() {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${protocol}//${window.location.host}`;
+  const urlParams = new URLSearchParams(window.location.search);
+  let roomCode = urlParams.get('room') || myRoomCode;
 
-  console.log('🔌 Connecting to:', wsUrl);
+  // Check if room code is in URL path (e.g., /YKYELA)
+  if (!roomCode) {
+    const pathParts = window.location.pathname.split('/').filter(p => p);
+    if (pathParts.length > 0) {
+      roomCode = pathParts[pathParts.length - 1]; // Get last path segment
+    }
+  }
+
+  // If no room specified and this is the first connection, let server assign one
+  if (!roomCode) {
+    roomCode = '';
+  }
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = roomCode ? `${protocol}//${window.location.host}?room=${roomCode}` : `${protocol}//${window.location.host}`;
+
+  console.log('🔌 Connecting to:', wsUrl, 'Room:', roomCode || 'auto');
   ws = new WebSocket(wsUrl);
-  
+
   ws.onopen = () => {
     console.log('✅ Connected to server');
     updateStatus('connected', 'Connected');
     updateDebugInfo('WebSocket: Connected');
   };
-  
+
   ws.onmessage = (event) => {
     console.log('📨 Received message:', event.data);
     try {
@@ -52,14 +78,14 @@ function initWebSocket() {
       console.error('Failed to parse message:', error);
     }
   };
-  
+
   ws.onclose = () => {
     console.log('❌ Disconnected from server');
     updateStatus('error', 'Disconnected');
     updateDebugInfo('WebSocket: Disconnected - Reconnecting...');
     setTimeout(initWebSocket, 3000);
   };
-  
+
   ws.onerror = (error) => {
     console.error('WebSocket error:', error);
     updateStatus('error', 'Connection Error');
@@ -70,45 +96,49 @@ function initWebSocket() {
 // Handle incoming messages
 function handleMessage(data) {
   console.log('🔄 Handling message type:', data.type);
-  
+
   switch (data.type) {
     case 'init':
       myId = data.clientId;
+      myRoomCode = data.roomCode;
       document.getElementById('deviceId').textContent = myId;
-      console.log('🆔 My ID:', myId);
-      updateDebugInfo(`My ID: ${myId}`);
+      document.getElementById('roomCodeDisplay').textContent = myRoomCode;
+      console.log('🆔 My ID:', myId, 'Room:', myRoomCode);
+      updateDebugInfo(`My ID: ${myId} | Room: ${myRoomCode}`);
+      // Load QR code after receiving room code
+      loadQRCode();
       break;
-      
+
     case 'client-list':
       console.log('👥 Client list updated:', data.clients);
       updateDevicesList(data.clients);
       break;
-      
+
     case 'file-offer':
       console.log('📨 FILE OFFER RECEIVED!', data);
       handleFileOffer(data);
       break;
-      
+
     case 'file-accept':
       console.log('✅ File accepted by:', data.senderId);
       handleFileAccept(data);
       break;
-      
+
     case 'file-reject':
       console.log('❌ File rejected by:', data.senderId);
       handleFileReject(data);
       break;
-      
+
     case 'file-chunk':
       console.log('📦 Chunk received:', data.chunkIndex, '/', data.totalChunks);
       handleFileChunk(data);
       break;
-      
+
     case 'file-complete':
       console.log('✅ File transfer complete from:', data.senderId);
       handleFileComplete(data);
       break;
-      
+
     default:
       console.log('⚠️ Unknown message type:', data.type);
   }
@@ -125,12 +155,12 @@ function updateStatus(type, text) {
 function updateDevicesList(clients) {
   const devicesList = document.getElementById('devicesList');
   const deviceCount = document.getElementById('deviceCount');
-  
+
   const otherClients = clients.filter(id => id !== myId);
   deviceCount.textContent = `${otherClients.length} online`;
-  
+
   console.log('📱 Other devices:', otherClients);
-  
+
   if (otherClients.length === 0) {
     devicesList.innerHTML = `
       <div class="empty-state">
@@ -140,7 +170,7 @@ function updateDevicesList(clients) {
     `;
     return;
   }
-  
+
   devicesList.innerHTML = otherClients.map(id => `
     <div class="device-item">
       <div class="device-info">
@@ -172,9 +202,9 @@ function handleFileSelect(event) {
     selectedFile = file;
     document.getElementById('fileLabel').textContent = file.name;
     document.getElementById('fileSize').textContent = formatFileSize(file.size);
-    
+
     console.log('📁 File selected:', file.name, formatFileSize(file.size));
-    
+
     // Update send buttons
     const sendButtons = document.querySelectorAll('.btn-send');
     sendButtons.forEach(btn => btn.disabled = false);
@@ -187,20 +217,20 @@ async function sendFileTo(targetId) {
     alert('Please select a file first');
     return;
   }
-  
+
   console.log('📤 Sending file to:', targetId);
   console.log('📄 File details:', {
     name: selectedFile.name,
     size: selectedFile.size,
     type: selectedFile.type
   });
-  
+
   currentTransfer = {
     targetId: targetId,
     file: selectedFile,
     startTime: Date.now()
   };
-  
+
   const message = {
     type: 'file-offer',
     targetId: targetId,
@@ -208,9 +238,9 @@ async function sendFileTo(targetId) {
     fileSize: selectedFile.size,
     fileType: selectedFile.type
   };
-  
+
   console.log('📨 Sending message:', message);
-  
+
   if (ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(message));
     console.log('✅ Message sent successfully');
@@ -224,19 +254,19 @@ async function sendFileTo(targetId) {
 // Handle file offer
 function handleFileOffer(data) {
   console.log('🎯 Processing file offer from:', data.senderId);
-  
+
   currentTransfer = {
     senderId: data.senderId,
     fileName: data.fileName,
     fileSize: data.fileSize,
     fileType: data.fileType
   };
-  
+
   document.getElementById('senderIdModal').textContent = data.senderId;
   document.getElementById('incomingFileName').textContent = data.fileName;
-  document.getElementById('incomingFileInfo').textContent = 
+  document.getElementById('incomingFileInfo').textContent =
     `${formatFileSize(data.fileSize)} • ${data.fileType || 'Unknown type'}`;
-  
+
   console.log('🔔 Showing modal for file offer');
   document.getElementById('incomingModal').style.display = 'flex';
 }
@@ -245,15 +275,15 @@ function handleFileOffer(data) {
 function acceptFile() {
   console.log('✅ Accepting file from:', currentTransfer.senderId);
   document.getElementById('incomingModal').style.display = 'none';
-  
+
   const message = {
     type: 'file-accept',
     targetId: currentTransfer.senderId
   };
-  
+
   console.log('📨 Sending accept message:', message);
   ws.send(JSON.stringify(message));
-  
+
   receivedChunks = [];
   showTransferProgress('Receiving...', currentTransfer.senderId, 0);
 }
@@ -262,32 +292,32 @@ function acceptFile() {
 function rejectFile() {
   console.log('❌ Rejecting file from:', currentTransfer.senderId);
   document.getElementById('incomingModal').style.display = 'none';
-  
+
   ws.send(JSON.stringify({
     type: 'file-reject',
     targetId: currentTransfer.senderId
   }));
-  
+
   currentTransfer = null;
 }
 
 // Handle file acceptance
 async function handleFileAccept(data) {
   console.log('📤 File accepted! Starting transfer...');
-  
+
   const file = currentTransfer.file;
   const chunkSize = 64 * 1024; // 64KB chunks
   const totalChunks = Math.ceil(file.size / chunkSize);
-  
+
   console.log(`📦 Total chunks to send: ${totalChunks}`);
-  
+
   showTransferProgress('Sending...', data.senderId, 0);
-  
+
   for (let i = 0; i < totalChunks; i++) {
     const start = i * chunkSize;
     const end = Math.min(start + chunkSize, file.size);
     const chunk = file.slice(start, end);
-    
+
     const reader = new FileReader();
     reader.onload = (e) => {
       ws.send(JSON.stringify({
@@ -297,20 +327,20 @@ async function handleFileAccept(data) {
         chunkIndex: i,
         totalChunks: totalChunks
       }));
-      
+
       const progress = ((i + 1) / totalChunks) * 100;
       updateTransferProgress(progress);
-      
+
       if (i % 10 === 0) { // Log every 10th chunk
         console.log(`📊 Progress: ${Math.round(progress)}%`);
       }
     };
     reader.readAsDataURL(chunk);
-    
+
     // Small delay between chunks
     await new Promise(resolve => setTimeout(resolve, 10));
   }
-  
+
   console.log('✅ All chunks sent, sending complete message');
   ws.send(JSON.stringify({
     type: 'file-complete',
@@ -331,10 +361,10 @@ function handleFileChunk(data) {
     index: data.chunkIndex,
     data: data.chunk
   });
-  
+
   const progress = (receivedChunks.length / data.totalChunks) * 100;
   updateTransferProgress(progress);
-  
+
   if (data.chunkIndex % 10 === 0) {
     console.log(`📥 Receiving: ${Math.round(progress)}%`);
   }
@@ -344,25 +374,25 @@ function handleFileChunk(data) {
 function handleFileComplete(data) {
   console.log('🎉 File transfer complete!');
   hideTransferProgress();
-  
+
   // Sort chunks by index
   receivedChunks.sort((a, b) => a.index - b.index);
   console.log(`📦 Total chunks received: ${receivedChunks.length}`);
-  
+
   try {
     // Combine chunks - handle different data formats
     const binaryData = [];
-    
+
     for (let i = 0; i < receivedChunks.length; i++) {
       const chunk = receivedChunks[i].data;
       console.log(`Processing chunk ${i}, type: ${typeof chunk}`);
-      
+
       // Extract base64 data (remove data:*/*;base64, prefix if present)
       let base64String = chunk;
       if (typeof chunk === 'string' && chunk.includes(',')) {
         base64String = chunk.split(',')[1];
       }
-      
+
       // Decode base64 to binary
       try {
         const binaryString = atob(base64String);
@@ -376,11 +406,11 @@ function handleFileComplete(data) {
         throw new Error(`Failed to decode chunk ${i}`);
       }
     }
-    
+
     // Calculate total size
     const totalSize = binaryData.reduce((sum, chunk) => sum + chunk.length, 0);
     console.log(`📊 Total file size: ${totalSize} bytes`);
-    
+
     // Combine all chunks into single array
     const combinedArray = new Uint8Array(totalSize);
     let offset = 0;
@@ -388,20 +418,20 @@ function handleFileComplete(data) {
       combinedArray.set(chunk, offset);
       offset += chunk.length;
     }
-    
+
     console.log(`✅ Combined array size: ${combinedArray.length} bytes`);
-    
+
     // Create blob with proper type
     const mimeType = currentTransfer.fileType || 'application/octet-stream';
     const blob = new Blob([combinedArray], { type: mimeType });
-    
+
     console.log(`💾 Blob created: ${blob.size} bytes, type: ${blob.type}`);
-    
+
     // Create download link
     const url = URL.createObjectURL(blob);
-    
+
     console.log('✅ File ready for download');
-    
+
     // Add to received files list
     addReceivedFile({
       name: currentTransfer.fileName,
@@ -409,17 +439,17 @@ function handleFileComplete(data) {
       url: url,
       from: data.senderId
     });
-    
+
     // Reset
     receivedChunks = [];
     currentTransfer = null;
-    
+
   } catch (error) {
     console.error('❌ Error processing file:', error);
     console.error('Error details:', error.message);
     console.error('Stack:', error.stack);
     alert('Error processing received file: ' + error.message);
-    
+
     // Reset anyway
     receivedChunks = [];
     currentTransfer = null;
@@ -430,12 +460,12 @@ function handleFileComplete(data) {
 function showTransferProgress(status, peerId, progress) {
   const card = document.getElementById('transferCard');
   card.style.display = 'block';
-  
-  document.getElementById('transferFileName').textContent = 
+
+  document.getElementById('transferFileName').textContent =
     currentTransfer.file ? currentTransfer.file.name : currentTransfer.fileName;
-  document.getElementById('transferPeer').textContent = 
+  document.getElementById('transferPeer').textContent =
     `${status} ${peerId}`;
-  
+
   updateTransferProgress(progress);
 }
 
@@ -443,7 +473,7 @@ function showTransferProgress(status, peerId, progress) {
 function updateTransferProgress(progress) {
   document.getElementById('progressFill').style.width = progress + '%';
   document.getElementById('progressPercent').textContent = Math.round(progress) + '%';
-  
+
   if (currentTransfer && currentTransfer.startTime) {
     const elapsed = (Date.now() - currentTransfer.startTime) / 1000;
     const fileSize = currentTransfer.file ? currentTransfer.file.size : currentTransfer.fileSize;
@@ -464,13 +494,13 @@ function hideTransferProgress() {
 // Add received file to list
 function addReceivedFile(fileData) {
   const receivedFiles = document.getElementById('receivedFiles');
-  
+
   // Remove empty state if exists
   const emptyState = receivedFiles.querySelector('.empty-state');
   if (emptyState) {
     emptyState.remove();
   }
-  
+
   const fileItem = document.createElement('div');
   fileItem.className = 'received-file-item';
   fileItem.innerHTML = `
@@ -485,9 +515,9 @@ function addReceivedFile(fileData) {
       Download
     </a>
   `;
-  
+
   receivedFiles.insertBefore(fileItem, receivedFiles.firstChild);
-  
+
   console.log('✅ File added to received list');
 }
 
@@ -503,6 +533,5 @@ function formatFileSize(bytes) {
 // Initialize on page load
 window.addEventListener('load', () => {
   console.log('🚀 App starting...');
-  loadQRCode();
   initWebSocket();
 });
