@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Local File Share</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-content">
+        <h1>📡 File Share</h1>
+        <div class="status-badge" id="statusBadge">Connecting...</div>
+      </div>
+      <div class="qr-code-section" id="qrCodeSection" style="display: none; margin-top: 15px; text-align: center;">
+        <p style="margin: 5px 0; font-size: 14px; color: #666;">Share this link with other devices:</p>
+        <div id="qrCodeContainer" style="margin: 10px 0;"></div>
+        <p style="margin: 5px 0; font-size: 12px; color: #888;" id="publicUrl">Loading...</p>
+      </div>
+      <div class="debug-info" id="debugInfo" style="font-size: 12px; color: #666; margin-top: 10px;"></div>
+    </header>
+
+    <!-- Your ID Card -->
+    <div class="card">
+      <div class="card-header">
+        <h2>🆔 Your Device ID</h2>
+      </div>
+      <div class="id-display">
+        <span class="device-id" id="deviceId">------</span>
+        <button class="btn btn-copy" id="copyBtn" onclick="copyId()">
+          📋 Copy
+        </button>
+      </div>
+      <p class="hint">Share this ID with other devices to receive files</p>
+    </div>
+
+    <!-- Available Devices -->
+    <div class="card">
+      <div class="card-header">
+        <h2>📱 Available Devices</h2>
+        <span class="device-count" id="deviceCount">0 online</span>
+      </div>
+      <div class="devices-list" id="devicesList">
+        <div class="empty-state">
+          <p>No other devices connected</p>
+          <small>Open this app on another device</small>
+        </div>
+      </div>
+    </div>
+
+    <!-- Send File Section -->
+    <div class="card">
+      <div class="card-header">
+        <h2>📤 Send File</h2>
+      </div>
+      <div class="file-input-wrapper">
+        <input type="file" id="fileInput" onchange="handleFileSelect(event)" />
+        <label for="fileInput" class="file-input-label">
+          <span class="file-icon">📁</span>
+          <span id="fileLabel">Choose a file</span>
+          <span class="file-size" id="fileSize"></span>
+        </label>
+      </div>
+      <div id="selectedFile" class="selected-file" style="display: none;"></div>
+    </div>
+
+    <!-- Transfer Progress -->
+    <div class="card" id="transferCard" style="display: none;">
+      <div class="card-header">
+        <h2>⏳ Transfer in Progress</h2>
+      </div>
+      <div class="transfer-info">
+        <div class="transfer-details">
+          <span id="transferFileName">file.txt</span>
+          <span id="transferPeer">to ABC123</span>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <div class="progress-text">
+          <span id="progressPercent">0%</span>
+          <span id="progressSpeed">0 KB/s</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Received Files -->
+    <div class="card">
+      <div class="card-header">
+        <h2>📥 Received Files</h2>
+      </div>
+      <div class="received-files" id="receivedFiles">
+        <div class="empty-state">
+          <p>No files received yet</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Incoming File Request Modal -->
+    <div class="modal" id="incomingModal" style="display: none;">
+      <div class="modal-content">
+        <h3>📨 Incoming File</h3>
+        <p><strong id="senderIdModal">ABC123</strong> wants to send you:</p>
+        <div class="file-details">
+          <p class="file-name" id="incomingFileName">document.pdf</p>
+          <p class="file-info" id="incomingFileInfo">2.5 MB • PDF</p>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" onclick="rejectFile()">Reject</button>
+          <button class="btn btn-primary" onclick="acceptFile()">Accept</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Console Log Display -->
+    <div class="card" style="background: #1f2937; color: #fff;">
+      <div class="card-header">
+        <h2 style="color: #fff;">📋 Debug Console</h2>
+        <button class="btn btn-secondary" onclick="clearConsole()" style="font-size: 12px; padding: 6px 12px;">Clear</button>
+      </div>
+      <div id="consoleLog" style="font-family: monospace; font-size: 11px; max-height: 200px; overflow-y: auto; background: #111827; padding: 12px; border-radius: 8px;">
+        <div style="color: #10b981;">Console ready...</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    // Override console.log to display in UI
+    const originalLog = console.log;
+    const consoleLogDiv = document.getElementById('consoleLog');
+    
+    console.log = function(...args) {
+      originalLog.apply(console, args);
+      const message = args.map(arg => 
+        typeof arg === 'object' ? JSON.stringify(arg, null, 2) : arg
+      ).join(' ');
+      
+      const time = new Date().toLocaleTimeString();
+      const logEntry = document.createElement('div');
+      logEntry.style.marginBottom = '4px';
+      logEntry.style.color = '#10b981';
+      logEntry.innerHTML = `<span style="color: #6b7280;">[${time}]</span> ${message}`;
+      consoleLogDiv.appendChild(logEntry);
+      consoleLogDiv.scrollTop = consoleLogDiv.scrollHeight;
+    };
+
+    console.error = function(...args) {
+      console.log('❌ ERROR:', ...args);
+    };
+
+    function clearConsole() {
+      consoleLogDiv.innerHTML = '<div style="color: #10b981;">Console cleared...</div>';
+    }
+
+    // Add debug info display
+    function updateDebugInfo(text) {
+      const debugDiv = document.getElementById('debugInfo');
+      debugDiv.textContent = text;
+    }
+  </script>
+</body>
+</html>
