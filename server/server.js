@@ -112,8 +112,35 @@ function handleMessage(senderId, roomCode, data) {
   if (!room) return;
 
   switch (data.type) {
+    case 'webrtc-offer':
+      // Forward WebRTC offer to target client
+      forwardToClient(room, data.targetId, {
+        type: 'webrtc-offer',
+        senderId: senderId,
+        offer: data.offer
+      });
+      break;
+
+    case 'webrtc-answer':
+      // Forward WebRTC answer to target client
+      forwardToClient(room, data.targetId, {
+        type: 'webrtc-answer',
+        senderId: senderId,
+        answer: data.answer
+      });
+      break;
+
+    case 'webrtc-ice-candidate':
+      // Forward ICE candidate to target client
+      forwardToClient(room, data.targetId, {
+        type: 'webrtc-ice-candidate',
+        senderId: senderId,
+        candidate: data.candidate
+      });
+      break;
+
     case 'signal':
-      // Forward signaling data for WebRTC
+      // Legacy signaling - keep for backward compatibility
       forwardToClient(room, data.targetId, {
         type: 'signal',
         senderId: senderId,

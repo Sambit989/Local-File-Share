@@ -5,19 +5,6 @@ let selectedFile = null;
 let currentTransfer = null;
 let receivedChunks = [];
 
-// WebRTC variables
-let peerConnections = new Map(); // targetId -> RTCPeerConnection
-let dataChannels = new Map(); // targetId -> RTCDataChannel
-let fileTransfers = new Map(); // transferId -> transfer info
-
-// STUN servers for NAT traversal
-const rtcConfiguration = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' }
-  ]
-};
-
 // Load QR code and public URL
 async function loadQRCode() {
   try {
@@ -96,6 +83,19 @@ function initWebSocket() {
     }
   };
 
+  ws.onclose = () => {
+    console.log('❌ Disconnected from server');
+    updateStatus('error', 'Disconnected');
+    updateDebugInfo('WebSocket: Disconnected - Reconnecting...');
+    setTimeout(initWebSocket, 3000);
+  };
+
+  ws.onerror = (error) => {
+    console.error('WebSocket error:', error);
+    updateStatus('error', 'Connection Error');
+    updateDebugInfo('WebSocket: Error occurred');
+  };
+}
 
 // Handle incoming messages
 function handleMessage(data) {
